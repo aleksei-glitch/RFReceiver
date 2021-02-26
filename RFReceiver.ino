@@ -21,7 +21,7 @@ Simple RF receiver and poster to thingspeak.com
  Creation Date: 2015/05/23
  Last Updated Date:2021/01/02 
  */
-
+#include <avr/wdt.h>
 #include <SPI.h>
 #include <Ethernet.h>
 #include <HttpClient.h>
@@ -31,7 +31,11 @@ Simple RF receiver and poster to thingspeak.com
 boolean serialInit = true;
 
 long RELAY_SET_TIME; // relay status change timestamp millis()
-long RELAY_DELAY_LIMIT = 1000*60*5; //relay on for 5 min if no further signals arrive
+long AWAKE_H = 12L*60L*60L;
+long AWAKE_MIN = 0L*60L;
+long AWAKE_SEC= 0L;
+long MODULE_REBOOT_LIMIT = 1000L*(AWAKE_H + AWAKE_MIN + AWAKE_SEC);//reboot every minute
+long RELAY_DELAY_LIMIT = 1000L*60L*5L; //relay on for 5 min if no further signals arrive
 int HEATING_RELAY_PIN = 2;//Relay pin to set high in order to close relay and set low to open/disconnect
 
 String sFields;
@@ -42,7 +46,9 @@ String temp;
 int RX_PIN = 12;// Tell Arduino on which pin you would like to receive data NOTE should be a PWM Pin
 int RX_ID = 3;// Recever ID address 
 int TX_ID;
-typedef struct roverRemoteData //Data Structure 
+
+//Data Structure 
+typedef struct roverRemoteData 
 {
   int    TX_ID;      // Initialize a storage place for the incoming TX ID  
   float    Sensor1Data;// Initialize a storage place for the first integar that you wish to Receive 
@@ -59,7 +65,7 @@ byte mac[] = {
   0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
 
 // Your ThingsSpeak API key to let you upload data
-String sApiKeys[] = {"","apiKey1","apiKey2","apiKey3"};
+String sApiKeys[] = {"APIKEY0","APIKEY1","APIKEY12","APIKEY13"};
 long lThingTimers[] = {0,0,0,0};
 long lDelayLimit=25000L; //send sensor data to web not more often than every 25sec 
 
@@ -74,15 +80,16 @@ void setup() {
 
   pinMode(13, OUTPUT);     
   pinMode(HEATING_RELAY_PIN,OUTPUT);
+  if (serialInit)Serial.println("Set Relay OFF...");
   setRelayOFF();//initially RELAY OFF - open     
   
- 
-
+  if (serialInit)Serial.println("Start radio communication...");
   //vw_set_ptt_inverted(true); // Required for DR3100
   vw_set_rx_pin(RX_PIN);// Set RX Pin 
   vw_setup(4000);// Setup and Begin communication over the radios at 2000bps( MIN Speed is 1000bps MAX 4000bps)
   vw_rx_start(); 
-
+  
+  if (serialInit)Serial.println("Connect Ethernet...");
   //Ethernet.begin(mac,ip);
 
   if(Ethernet.begin(mac)==1) {
@@ -101,6 +108,18 @@ void setup() {
  -- loop
  ---------------------------------------------------------------------------------*/
 void loop(){
+   
+   long myTime=millis();
+   if (serialInit)Serial.print("millis / reboot limit / countdown : ");
+   if (serialInit)Serial.print(myTime);
+   if (serialInit)Serial.print(" / ");
+   if (serialInit)Serial.print(MODULE_REBOOT_LIMIT); 
+   if (serialInit)Serial.print(" / ");
+   if (serialInit)Serial.println(myTime-MODULE_REBOOT_LIMIT); 
+      
+  if (myTime-MODULE_REBOOT_LIMIT>0)  reboot(); //reboot periodically whole module to avoid millis overflow
+  
+  //delay(10000);
   sFields="";
   //digitalWrite(13,LOW);  
   
@@ -169,13 +188,21 @@ void loop(){
     } 
     else
     { 
-      Serial.println(" ID Does not match waiting for next transmission ");
+      if (serialInit)Serial.println(" ID Does not match waiting for next transmission ");
     }
     //digitalWrite(13,LOW); 
   }
 }
 
-
+void reboot(){
+  if (serialInit)Serial.println(""); 
+  if (serialInit)Serial.println("... REBOOT ..."); 
+  if (serialInit)Serial.println(""); 
+  if (serialInit)Serial.flush(); 
+  wdt_disable();
+  wdt_enable(WDTO_15MS);
+  while (1) {}
+}
 
 /*---------------------------------------------------------------------------------
  -- setRelayON
@@ -201,8 +228,9 @@ void setRelayOFF(){
  -- - after given delay_limit reset RELAY OFF - open status  
  ---------------------------------------------------------------------------------*/
 void setRelayReset(){  
-  //relay reset
-  if(millis() - RELAY_SET_TIME > RELAY_DELAY_LIMIT){    
+  //relay reset  
+  long myTime=millis();
+  if(myTime - RELAY_SET_TIME > RELAY_DELAY_LIMIT){    
          setRelayOFF();
   }
 }
@@ -221,9 +249,10 @@ int iHTTPfaiCount=0;
  -- - sends data to thingspeak
  ---------------------------------------------------------------------------------*/
 void sendHttpGet(String pApiKey, String pFields,int n){
+  long myTime = millis();
   if (serialInit)Serial.println(pApiKey+": "+pFields);
 
-    if(millis()-lThingTimers[n]  > lDelayLimit || millis()-lThingTimers[n]  < 0L){
+    if(myTime - lThingTimers[n]  > lDelayLimit || myTime - lThingTimers[n]  < 0L){
     lThingTimers[n]=millis();
   }else{  
     return;
@@ -232,11 +261,24 @@ void sendHttpGet(String pApiKey, String pFields,int n){
   {
     if (serialInit)Serial.println("connected to thingspeak..");
     if (serialInit)Serial.println("GET /update?api_key="+sApiKeys[n]+pFields+" HTTP/1.1");
+    //client.println("GET /update?key="+pApiKey+pFields+" HTTP/1.1");//sApiKeys(2)
+    //client.println("GET /update?key="+sApiKeys[n]+pFields+" HTTP/1.1");//
     client.println("GET /update?api_key="+sApiKeys[n]+pFields+" HTTP/1.1");//
-    client.println("Host: api.thingspeak.com"); //client.println("Host: 184.106.153.149");
+    client.println("Host: api.thingspeak.com");
+    //client.println("Host: 184.106.153.149");
     client.println("Connection: close");
     client.println();
-   
+    /* client.print("POST /update HTTP/1.1\n");
+     //client.print("Host: api.thingspeak.com\n");
+     client.println("Host: 184.106.153.149");
+     client.print("Connection: close\n");
+     client.print("X-THINGSPEAKAPIKEY: " + pApiKey + "\n");
+     client.print("Content-Type: application/x-www-form-urlencoded\n");
+     client.print("Content-Length: ");
+     client.print(pFields.length());
+     client.print("\n\n");
+     client.print(pFields);
+     */
     delay(1000);
     if (client.connected())
     {
@@ -267,7 +309,7 @@ void sendHttpGet(String pApiKey, String pFields,int n){
         if (serialInit)Serial.println("Ethernet connect Successful");
       }
       else{
-        if (serialInit)Serial.println("Error getting IP address via DHCP, try again by resetting...");
+        if (serialInit)Serial.println("Error getting IP address via DHCP, try again by re...");
       }
     }
   }
