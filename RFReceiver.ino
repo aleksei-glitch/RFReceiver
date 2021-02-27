@@ -19,7 +19,7 @@ Simple RF receiver and poster to thingspeak.com
  
  Created By: Aleksei Ivanov
  Creation Date: 2015/05/23
- Last Updated Date:2021/01/02 
+ Last Updated Date:2021/02/27 
  */
 #include <avr/wdt.h>
 #include <SPI.h>
@@ -30,8 +30,9 @@ Simple RF receiver and poster to thingspeak.com
 
 boolean serialInit = true;
 
+long myTime = millis();
 long RELAY_SET_TIME; // relay status change timestamp millis()
-long AWAKE_H = 12L*60L*60L;
+long AWAKE_H = 1L*60L*60L;
 long AWAKE_MIN = 0L*60L;
 long AWAKE_SEC= 0L;
 long MODULE_REBOOT_LIMIT = 1000L*(AWAKE_H + AWAKE_MIN + AWAKE_SEC);//reboot every minute
@@ -59,13 +60,15 @@ typedef struct roverRemoteData
   String   API_KEY; //Posting to server key
 
 };
+  struct roverRemoteData receivedData;
+  uint8_t rcvdSize = sizeof(receivedData);//Incoming data size 
 
 // MAC address for your Ethernet shield
 byte mac[] = { 
   0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
 
 // Your ThingsSpeak API key to let you upload data
-String sApiKeys[] = {"APIKEY0","APIKEY1","APIKEY12","APIKEY13"};
+String sApiKeys[] = {"APIKEY0","APIKEY1","APIKEY2","APIKEY3"};
 long lThingTimers[] = {0,0,0,0};
 long lDelayLimit=25000L; //send sensor data to web not more often than every 25sec 
 
@@ -109,7 +112,7 @@ void setup() {
  ---------------------------------------------------------------------------------*/
 void loop(){
    
-   long myTime=millis();
+   myTime=millis();
    if (serialInit)Serial.print("millis / reboot limit / countdown : ");
    if (serialInit)Serial.print(myTime);
    if (serialInit)Serial.print(" / ");
@@ -122,14 +125,13 @@ void loop(){
   //delay(10000);
   sFields="";
   //digitalWrite(13,LOW);  
-  
+  receivedData={};
+  rcvdSize = sizeof(receivedData);
   
   //relay reset
   setRelayReset();
 
   
-  struct roverRemoteData receivedData;
-  uint8_t rcvdSize = sizeof(receivedData);//Incoming data size 
   vw_wait_rx();// Start to Receive data now 
 
 
@@ -244,12 +246,13 @@ String getFString(float pFloat){
 }
 
 int iHTTPfaiCount=0;
+char c;
 /*---------------------------------------------------------------------------------
  -- sendHttpGet
  -- - sends data to thingspeak
  ---------------------------------------------------------------------------------*/
 void sendHttpGet(String pApiKey, String pFields,int n){
-  long myTime = millis();
+  myTime = millis();
   if (serialInit)Serial.println(pApiKey+": "+pFields);
 
     if(myTime - lThingTimers[n]  > lDelayLimit || myTime - lThingTimers[n]  < 0L){
@@ -286,7 +289,7 @@ void sendHttpGet(String pApiKey, String pFields,int n){
 
       iHTTPfaiCount = 0;
       while (client.available()) {
-        char c = client.read();
+        c = client.read();
         if (serialInit)Serial.print(c);
       }
 
